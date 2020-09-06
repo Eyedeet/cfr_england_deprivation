@@ -1,0 +1,887 @@
+---
+title: "statistical modelling of the CFR"
+author: "Anne Marie Suffel"
+date: "26 6 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(rgdal)
+library(broom)
+require(maps)
+library(sp)
+library(magrittr)
+library(tidycomm)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(patchwork)
+library(lmtest)
+library(boot)
+##uploading theLA_code
+load(file = "C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/ons_data.Rdata")
+```
+
+
+
+
+```{r, echo = FALSE}
+# Data preparation step 1:
+# defining different agegroups according to literature for being more at risk
+# - people above 50
+# - people abobe 60
+# - people above 65
+# - peple above 70
+
+colnames(ons_data)
+#---renaming the dataset and bringing variables into the right format
+ons_data$code <- factor(ons_data$code)
+ons_data$name <- factor(ons_data$name)
+ons_data$Region <- factor(ons_data$Region)
+ons_data$week <- as.integer(ons_data$week)
+ons_data$imd_5s <- as.factor(ons_data$imd_5s)
+ons_data$imd_10s <- as.factor(ons_data$imd_10s)
+ons_data$imd_5r <- as.factor(ons_data$imd_5r)
+ons_data$imd_10r <- as.factor(ons_data$imd_10r)
+ons_data$imd_5_most_dep <- as.factor(ons_data$imd_5_most_dep)
+ons_data$imd_10_most_dep <- as.factor(ons_data$imd_10_most_dep)
+ons_data$imd_5_most_depr <- as.factor(ons_data$imd_5_most_depr)
+ons_data$imd_10_most_depr <- as.factor(ons_data$imd_10_most_depr)
+ons_data$prop_most_deprived <- as.numeric(ons_data$prop_most_deprived)
+
+
+ons_data <- ons_data %>%
+  dplyr::mutate(month = lubridate::month(date))
+ons_data$month <- factor(ons_data$month, labels = c("January", "February", "March", "April", "May", "June"))
+
+
+ons_data <- ons_data %>%
+              dplyr::rename(all_ages = pop_tot, females = fem_tot, males = mal_tot)
+
+ons_temp <- ons_data %>%
+              dplyr::select(c(code, all_ages, age_0, age_2, age_3, age_4, age_5, age_6, age_7, age_8, age_9, age_10, age_11, age_12, age_13,
+                              age_14, age_15, age_16, age_17, age_18, age_19, age_20, age_21, age_22, age_23, age_24, age_25,
+                              age_26, age_27, age_28, age_29, age_30, age_31, age_32, age_33, age_34, age_35, age_36, age_37, age_38, 
+                              age_39, age_40, age_41, age_42, age_43, age_44, age_45, age_46, age_47, age_48, age_49, age_50, age_51,
+                              age_52, age_53, age_54, age_55, age_56, age_57, age_58, age_59, age_60, age_61, age_62, age_63, age_64,
+                              age_65, age_66, age_67, age_68, age_69, age_70, age_71, age_72, age_73, age_74, age_75, age_76, age_77, 
+                              age_78, age_79, age_80, age_81, age_82, age_83, age_84, age_85, age_86, age_87, age_88, age_89, age_90,
+                              males, females)) %>%
+              dplyr::distinct()
+
+#---calculating the number of persons within different agebands being more or less at risk of covid
+ons_temp <- ons_temp %>%
+                  dplyr::group_by(code) %>%
+                  dplyr::mutate(pop_under_19 = sum(age_0, age_2, age_3, age_4, age_5, age_6, age_7, age_8, age_9, age_10, age_11, age_12, 
+                                              age_13, age_14, age_15,  age_16, age_17, age_18),
+                                pop_under_50 = sum(age_0, age_2, age_3, age_4, age_5, age_6, age_7, age_8, age_9, age_10, age_11, age_12, 
+                                              age_13, age_14, age_15,  age_16, age_17, age_18, age_19, age_20, age_21, age_22, age_23, age_24,
+                                              age_25, age_26, age_27, age_28, age_29, age_30, age_31, age_32, age_33, age_34, age_35, age_36,
+                                              age_37, age_38, age_39, age_40, age_41, age_42, age_43, age_44, age_45, age_46, age_47, age_48, 
+                                            age_49),
+                                pop_over_50 = sum(age_50, age_51, age_52, age_53, age_54, age_55, age_56, age_57, age_58,age_59, age_60, age_61,
+                                                  age_62, age_63, age_64, age_65, age_66, age_67, age_68, age_69, age_70, age_71, age_72, age_73,
+                                                  age_74, age_75, age_76, age_77, age_78, age_79,age_80, age_81, age_82, age_83, age_84, age_85, age_86,
+                                                  age_87, age_88, age_89, age_90), 
+                                pop_over_60 = sum(age_60, age_61, age_62, age_63, age_64, age_65, age_66, age_67, age_68, age_69, age_70, age_71, age_72,
+                                                  age_73,age_74, age_75, age_76, age_77, age_78, age_79,age_80, age_81, age_82, age_83, age_84, age_85, 
+                                                  age_86,age_87, age_88, age_89, age_90),
+                                pop_over_65 = sum(age_65, age_66, age_67, age_68, age_69, age_70, age_71, age_72, age_73,age_74, age_75, age_76, age_77,
+                                                  age_78, age_79,age_80, age_81, age_82, age_83, age_84, age_85,age_86,age_87, age_88, age_89, age_90),
+                                pop_over_70 = sum(age_70, age_71, age_72, age_73,age_74, age_75, age_76, age_77,age_78, age_79,age_80, age_81, age_82, 
+                                                  age_83, age_84, age_85,age_86,age_87, age_88, age_89, age_90)) 
+
+
+#---calculating the percentages of different age groups and gender
+ons_temp <- ons_temp %>%
+              dplyr::select(c(code, all_ages, pop_under_19, pop_under_50, pop_over_50, pop_over_60, pop_over_65, pop_over_70, females, males))
+                            
+ons_temp <- ons_temp %>%
+          dplyr::mutate(male_per = ((males * 100)/all_ages), female_per = ((females * 100)/all_ages), pop_under_19_per = ((pop_under_19 * 100)/all_ages),
+                        pop_under_50_per = ((pop_under_50 * 100/all_ages)), pop_over_60_per = ((pop_over_60 * 100)/all_ages),
+                        pop_over_50_per = ((pop_over_50 * 100)/all_ages), pop_over_65_per = ((pop_over_65 * 100)/all_ages), 
+                        pop_over_70_per = ((pop_over_70 * 100)/all_ages))
+
+
+#--- joining the datasets
+ons_temp <- ons_temp %>%
+              dplyr::select(c(code, pop_under_19, pop_under_19_per, pop_under_50, pop_under_50_per, pop_over_50, pop_over_50_per, 
+                              pop_over_65, pop_over_65_per, pop_over_70, pop_over_70_per, male_per, female_per))
+ons_data <- ons_data %>%
+              dplyr::left_join(ons_temp, by = "code") %>%
+              dplyr:: distinct()
+
+remove(ons_temp)
+head(ons_data)
+
+
+```
+
+
+
+Calculating the propoertion of BAME population per LA
+````{r, echo = FASLE}
+colnames(ons_data)
+ons_temp <- ons_data %>%
+              dplyr::select(c(code, White_British, Other_White, Mixed, Asian, Black, Other, all_ages)) %>%
+              dplyr::distinct()
+#--- calculating the size of white and BAME population
+ons_temp <- ons_temp %>%
+                  dplyr::group_by(code) %>%
+                  dplyr::mutate(white = sum(White_British, Other_White), BAME = sum(Mixed, Asian, Black, Other, na.rm = TRUE))
+
+
+#---calcaulating the percentage of the minority BAme population per LA
+ons_temp <- ons_temp %>%
+          dplyr::mutate(BAME_per = (BAME * 100)/all_ages)
+
+head(ons_temp)
+
+#--- joining the datasets
+ons_temp <- ons_temp %>%
+              dplyr::select(c(code, white, BAME, BAME_per))
+ons_data <- ons_data %>%
+              dplyr::left_join(ons_temp, by = "code") %>%
+              dplyr:: distinct()
+head(ons_data)
+
+````
+
+Calculating the total number of deaths and cases per setting 
+Calculating the other deaths which are not covid-related
+
+````{r, echo = FALSE}
+
+##--- Calculating the total number of deaths and cases per setting 
+#--- Calculating the other deaths which are not covid-related
+ons_data<- ons_data %>%
+                dplyr::group_by(code) %>%
+                dplyr::mutate(total_covid_cases = sum(lab.cases, na.rm = TRUE),
+                              total_covid_deaths = sum(covid.deaths.home, covid.deaths.hospital, covid.deaths.care.home, covid.deaths.hospice,
+                                                       covid.deaths.communal.establishement, covid.deaths.elsewhere, na.rm = TRUE),
+                              total_covid_deaths_home = sum(covid.deaths.home, na.rm = TRUE),
+                              total_covid_deaths_hospital = sum(covid.deaths.hospital, na.rm = TRUE),
+                              total_covid_deaths_hospice = sum(covid.deaths.hospice, na.rm = TRUE),
+                              total_covid_deaths_communal_establishement =  sum(covid.deaths.communal.establishement, na.rm = TRUE),
+                              total_covid_deaths_carehome = sum(covid.deaths.care.home, na.rm = TRUE),
+                              total_covid_deaths_elsewhere = sum(covid.deaths.elsewhere, na.rm = TRUE))
+ons_data<- ons_data %>%
+                dplyr::group_by(code) %>%
+                dplyr::mutate(covid_cases_ratio = (total_covid_cases*100000)/all_ages,
+                              covid_deaths_ratio = (total_covid_deaths*100000)/all_ages,
+                             covid_deaths_home_ratio = (total_covid_deaths_home*100000)/all_ages,
+                             covid_deaths_hospital_ratio = (total_covid_deaths_hospital*100000)/all_ages,
+                             covid_deaths_hospice_ratio = (total_covid_deaths_hospice*100000)/all_ages,
+                             covid_deaths_communal_establishement_ratio =  (total_covid_deaths_communal_establishement*100000)/all_ages,
+                             covid_deaths_elsewhere_ratio = (total_covid_deaths_elsewhere*100000)/all_ages,
+                             covid_deaths_carehome_ratio = (total_covid_deaths_carehome*100000)/all_ages)
+
+#---weekly number of other deaths during the time of the CFR calculations
+temp <- ons_data %>%
+  dplyr::select(code, week, 
+                covid.deaths.home, covid.deaths.hospital, covid.deaths.care.home, covid.deaths.hospice, covid.deaths.communal.establishement, 
+                covid.deaths.elsewhere, lab.cases) %>%
+  dplyr::distinct()
+
+
+temp <- temp %>%
+   dplyr::filter(week >= 10 & week <=22) %>%
+  dplyr::group_by(code, week) %>%
+  dplyr::mutate(weekly_cases = sum(lab.cases, na.rm = TRUE)) %>%
+  dplyr::select(-(lab.cases)) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(weekly_deaths = sum(covid.deaths.home, covid.deaths.hospital, covid.deaths.care.home, covid.deaths.hospice,
+                                                       covid.deaths.communal.establishement,covid.deaths.elsewhere, na.rm = TRUE),
+                prop_carehomes = covid.deaths.care.home/weekly_deaths)
+
+
+temp <- temp %>%
+  dplyr::select(-c(covid.deaths.home, covid.deaths.hospital, covid.deaths.care.home, covid.deaths.hospice,
+                                                       covid.deaths.communal.establishement,covid.deaths.elsewhere))
+ons_data <- ons_data %>%
+  dplyr::left_join(temp, by = c("code", "week"))
+
+colnames(ons_data)
+
+
+#---weekly number of other deaths during the time of the CFR calculations
+temp <- ons_data %>%
+  dplyr::select(code, week, 
+                covid.deaths.home, covid.deaths.hospital, covid.deaths.care.home, covid.deaths.hospice, covid.deaths.communal.establishement, 
+                covid.deaths.elsewhere,
+                all.deaths.home, all.deaths.hospital, all.deaths.care.home,all.deaths.hospice, all.deaths.communal.establishement , all.deaths.care.home,
+               all.deaths.elsewhere, all_ages) %>%
+  dplyr::distinct()
+
+temp <- temp %>%
+   dplyr::filter(week >= 10 & week <=22) %>%
+                dplyr::group_by(code, week) %>%
+                dplyr::mutate(other_deaths = (sum(all.deaths.home, all.deaths.hospital, all.deaths.care.home, all.deaths.hospice,
+                                                       all.deaths.communal.establishement, all.deaths.elsewhere, na.rm = TRUE))-
+                                (sum(covid.deaths.home, covid.deaths.hospital, covid.deaths.care.home, covid.deaths.hospice,
+                                                       covid.deaths.communal.establishement, covid.deaths.elsewhere, na.rm = TRUE)),
+                              other_deaths_home = all.deaths.home-covid.deaths.home,
+                              other_deaths_hospital = all.deaths.hospital-covid.deaths.hospital,
+                              other_deaths_hospice = all.deaths.hospice-covid.deaths.hospice,
+                              other_deaths_communal_establishement = all.deaths.communal.establishement-covid.deaths.communal.establishement,
+                              other_deaths_carehome = all.deaths.care.home-covid.deaths.care.home,
+                              other_deaths_elsewhere = all.deaths.elsewhere-covid.deaths.elsewhere)
+
+temp <- temp %>%
+  dplyr::select(-c(all_ages,  covid.deaths.home, covid.deaths.hospital, covid.deaths.care.home, covid.deaths.hospice, covid.deaths.communal.establishement,
+                covid.deaths.elsewhere,
+                all.deaths.home, all.deaths.hospital, all.deaths.care.home,all.deaths.hospice, all.deaths.communal.establishement , all.deaths.care.home,
+               all.deaths.elsewhere))
+
+
+ons_data <- ons_data %>%
+  dplyr::left_join(temp, by = c("code", "week"))
+
+
+
+````
+
+Filtering the massive dataset to reduce a little bit the size of vectors used
+
+```{r , echo= FALSE}
+#Filtering the massive dataset to reduce a little bit the size of vectors used
+ons <- ons_data %>%
+        dplyr::select( c(code, name, all_ages, date, lab.cases, week, month,  Region, median_age, pop_density,
+                        covid.deaths.home, covid.deaths.hospital,  covid.deaths.care.home,  covid.deaths.hospice, covid.deaths.communal.establishement,
+                        covid.deaths.elsewhere,
+                        weekly_deaths, weekly_cases, prop_carehomes, 
+                        other_deaths, other_deaths_home,other_deaths_hospital,other_deaths_hospice, other_deaths_communal_establishement, 
+                        other_deaths_carehome, other_deaths_elsewhere,
+                        prop_most_deprived, imd_5_most_dep, imd_5s, imd_5r,
+                       female_per, BAME_per,
+                       obs_ratio, diab_ratio, hyper_ratio, pop_under_19, pop_under_19_per, pop_under_50,
+                        pop_under_50_per, pop_over_50, pop_over_50_per, pop_over_65, pop_over_65_per, pop_over_70, pop_over_70_per,
+                        total_covid_cases, total_covid_deaths, total_covid_deaths_home, total_covid_deaths_hospital, total_covid_deaths_hospice,
+                        total_covid_deaths_communal_establishement,total_covid_deaths_elsewhere, total_covid_deaths_carehome, 
+                        covid_cases_ratio, covid_deaths_ratio, covid_deaths_carehome_ratio, covid_deaths_home_ratio, covid_deaths_hospital_ratio,
+                         covid_deaths_hospice_ratio, covid_deaths_communal_establishement_ratio, covid_deaths_elsewhere_ratio,
+                         ))
+
+ons$Region <- factor(ons$Region, labels = c("East", "East total", "East Midlands", "East Midlands total", "London", "London total", "North East", "Nort West", "Nort West total", "South East", "South East total", "South West", "South West total", "West Midlands",
+                                            "West Midlands total"))
+
+#give nicer names to everything
+ons <- ons %>%
+  dplyr::rename(weekly_deaths_hospital = covid.deaths.hospital, 
+                weekly_deaths_home = covid.deaths.home,
+                weekly_deaths_carehome = covid.deaths.care.home,
+                weekly_deaths_hospice = covid.deaths.hospice,
+                weekly_deaths_communal_establishement = covid.deaths.communal.establishement,
+                weekly_deaths_elsewhere = covid.deaths.elsewhere)
+
+
+#---calculate the weekly mortality per 100,000 inhabitants
+
+ons <- ons %>%
+  dplyr::group_by(week, code) %>%
+  dplyr::mutate(weekly_mortality = (weekly_deaths*100000)/all_ages,
+                weekly_mortality_hospital = (weekly_deaths_hospital*100000)/all_ages,
+                weekly_mortality_home = (weekly_deaths_home*100000)/all_ages,
+                weekly_mortality_carehome = (weekly_deaths_carehome*100000)/all_ages,
+                weekly_mortality_hospice = (weekly_deaths_hospice*100000)/all_ages, 
+                weekly_mortality_communal_establishement = (weekly_deaths_communal_establishement*100000)/all_ages,
+                weekly_mortality_elsewhere = (weekly_deaths_elsewhere*100000)/all_ages,
+                weekly_mortality_other = (other_deaths*1000000)/all_ages,
+                weekly_mortality_hospital_other = (other_deaths_hospital*100000)/all_ages,
+                weekly_mortality_home_other = (other_deaths_home*100000)/all_ages,
+                weekly_mortality_carehome_other = (other_deaths_carehome*100000)/all_ages,
+                weekly_mortality_hospice_other = (other_deaths_hospice*100000)/all_ages, 
+                weekly_mortality_communal_establishement_other = (other_deaths_communal_establishement*100000)/all_ages,
+                weekly_mortality_elsewhere_other = (other_deaths_elsewhere*100000)/all_ages)
+
+
+#---monthly mortality
+temp <- ons %>%
+  dplyr::select(month, week, code,weekly_deaths,weekly_cases,  weekly_deaths_hospital, weekly_deaths_home, weekly_deaths_carehome, 
+                weekly_deaths_hospice, weekly_deaths_communal_establishement, weekly_deaths_elsewhere,
+                other_deaths, other_deaths_hospital, other_deaths_home, other_deaths_carehome, other_deaths_hospice,
+                other_deaths_communal_establishement, other_deaths_elsewhere, prop_carehomes,
+                all_ages) %>%
+  dplyr::distinct() %>%
+  dplyr::group_by(month, code) %>%
+  dplyr::mutate(monthly_mortality = (sum(weekly_deaths, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_hospital = (sum(weekly_deaths_hospital, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_home = (sum(weekly_deaths_home, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_carehome = (sum(weekly_deaths_carehome, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_hospice = (sum(weekly_deaths_hospice, na.rm = TRUE)*100000)/all_ages, 
+                monthly_mortality_communal_establishement = (sum(weekly_deaths_communal_establishement, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_elsewhere = (sum(weekly_deaths_elsewhere, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_other = (sum(other_deaths, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_hospital_other = (sum(other_deaths_hospital, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_home_other = (sum(other_deaths_home, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_carehome_other = (sum(other_deaths_carehome, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_hospice_other = (sum(other_deaths_hospice, na.rm = TRUE)*1000000)/all_ages, 
+                monthly_mortality_communal_establishement_other = (sum(other_deaths_communal_establishement, na.rm = TRUE)*100000)/all_ages,
+                monthly_mortality_elsewhere_other = (sum(other_deaths_elsewhere, na.rm = TRUE)*100000)/all_ages,
+                monthly_cases = sum(weekly_cases, na.rm = TRUE), 
+                monthly_prop_carehomes = mean(prop_carehomes, na.rm = TRUE))
+
+
+#---joining the data sets
+temp <- temp %>%
+  dplyr::select(month,code, 
+                monthly_mortality, monthly_mortality_hospital, monthly_mortality_home, monthly_mortality_carehome,  monthly_mortality_hospice,
+                monthly_mortality_communal_establishement,monthly_mortality_elsewhere,
+                monthly_mortality_other, monthly_mortality_hospital_other, monthly_mortality_home_other, monthly_mortality_hospice_other,
+                monthly_mortality_carehome_other, monthly_mortality_communal_establishement_other,monthly_mortality_elsewhere_other,
+                monthly_cases, monthly_prop_carehomes )
+
+ons <- ons %>%
+  dplyr::left_join(temp, by = c("month", "code"))
+
+```
+
+
+Calculating CFR according to the best time interval adjusting for reporting delays between cases and deaths and different settings 
+CFRs, step 1: optimising the time delay between cases and deaths among all places to die
+````{r, echo = FALSE}
+df1 <- ons %>%
+  dplyr::select(week, code, weekly_cases) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(week = as.numeric(week)) %>%
+  dplyr::rename(week_test = week)
+
+df2 <- ons %>%
+  dplyr::select(week, code, weekly_deaths) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(week = as.numeric(week),
+                week_1 =  week-1, 
+                week_2 = week-2,
+                week_3 = week- 3)
+
+head(df2)
+
+#---no reporting dealy at all
+df_join <- df2 %>%
+  dplyr::rename(week_test = week)
+test <- df1 %>%
+  dplyr::left_join(df_join, by = c("code", "week_test")) %>%
+  dplyr::filter(week_test >= 9 & week_test <=21) %>%
+  dplyr::filter(complete.cases(weekly_deaths, weekly_cases)) %>%
+  dplyr::arrange(week_test) %>%
+  dplyr::group_by(week_test) %>%
+  dplyr::mutate(total_weekly_cases = sum(weekly_cases),
+                   total_weekly_deaths = sum(weekly_deaths))
+test <- test %>%
+  dplyr::select(week_test, total_weekly_cases, total_weekly_deaths) %>%
+  dplyr::distinct() %>%
+  dplyr::filter(complete.cases(total_weekly_cases, total_weekly_deaths))
+
+# #---correlation
+# cor.test(test$total_weekly_cases, test$total_weekly_deaths,  alternative = "two.sided", use = "pairwise", method = "pearson",
+#             adjust = "holm", alpha = 0.05, ci = TRUE, minlength = 5)
+ #---correlation coefficient:  0.876645
+
+#---reporting delay one week
+df_join <- df2 %>%
+  dplyr::rename(week_test = week_1)
+test1 <- df1 %>%
+  dplyr::left_join(df_join, by = c("code", "week_test")) %>%
+  dplyr::filter(week_test >= 9 & week_test <=21) %>%
+  dplyr::filter(complete.cases(weekly_deaths, weekly_cases)) %>%
+  dplyr::arrange(week_test) %>%
+  dplyr::group_by(week_test) %>%
+  dplyr::mutate(total_weekly_cases = sum(weekly_cases),
+                   total_weekly_deaths = sum(weekly_deaths))
+test1 <- test1 %>%
+  dplyr::select(week_test, total_weekly_cases, total_weekly_deaths) %>%
+  dplyr::distinct() %>%
+  dplyr::filter(complete.cases(total_weekly_cases, total_weekly_deaths))
+
+
+# #---correlation
+#  cor.test(test1$total_weekly_cases, test1$total_weekly_deaths,  alternative = "two.sided", use = "pairwise", method = "pearson",
+#             adjust = "holm", alpha = 0.05, ci = TRUE, minlength = 5)
+# #---correlation coefficient: 0.9967728  
+
+ #---reporting delay 2 weeks
+df_join <- df2 %>%
+  dplyr::rename(week_test = week_2)
+test2 <- df1 %>%
+  dplyr::left_join(df_join, by = c("code", "week_test")) %>%
+  dplyr::filter(week_test >= 9 & week_test <=21) %>%
+  dplyr::filter(complete.cases(weekly_deaths, weekly_cases)) %>%
+  dplyr::arrange(week_test) %>%
+  dplyr::group_by(week_test) %>%
+  dplyr::mutate(total_weekly_cases = sum(weekly_cases),
+                   total_weekly_deaths = sum(weekly_deaths))
+test2 <- test2 %>%
+  dplyr::select(week_test, total_weekly_cases, total_weekly_deaths) %>%
+  dplyr::distinct() %>%
+  dplyr::filter(complete.cases(total_weekly_cases, total_weekly_deaths))
+# #---correlation
+#  cor.test(test2$total_weekly_cases, test2$total_weekly_deaths,  alternative = "two.sided", use = "pairwise", method = "pearson",
+#             adjust = "holm", alpha = 0.05, ci = TRUE, minlength = 5)
+# #---correlation coefficient is 0.8245597 
+ 
+  #---reporting delay 3 weeks
+df_join <- df2 %>%
+  dplyr::rename(week_test = week_3)
+test3 <- df1 %>%
+  dplyr::left_join(df_join, by = c("code", "week_test")) %>%
+  dplyr::filter(week_test >= 9 & week_test <=21) %>%
+  dplyr::filter(complete.cases(weekly_deaths, weekly_cases)) %>%
+  dplyr::arrange(week_test) %>%
+  dplyr::group_by(week_test) %>%
+  dplyr::mutate(total_weekly_cases = sum(weekly_cases),
+                   total_weekly_deaths = sum(weekly_deaths))
+test3 <- test3 %>%
+  dplyr::select(week_test, total_weekly_cases, total_weekly_deaths) %>%
+  dplyr::distinct() %>%
+  dplyr::filter(complete.cases(total_weekly_cases, total_weekly_deaths))
+# #---correlation
+#  cor.test(test3$total_weekly_cases, test3$total_weekly_deaths,  alternative = "two.sided", use = "pairwise", method = "pearson",
+#             adjust = "holm", alpha = 0.05, ci = TRUE, minlength = 5)
+# #---correlation coefficient is 0.3588141
+````
+
+
+
+
+
+Step three, calculating the the actual CFR with the best time delay of reporting
+home: no delay
+all places and hospitals: one week delay
+hospices and care homes: two weeks delay
+
+```{r, echo = FALSE}
+
+cfr <- function(cases, deaths) {
+
+  if(is.na(cases) | is.na(deaths)){
+    return(NA)
+  }
+  if(is.na(cases) & is.na(deaths)){
+    return(NA)
+  }
+  if(deaths == 0){
+    result <- 0
+  }
+  if(cases == 0){
+    result <- 0
+  }
+  else{
+    result <- (deaths/cases)*100
+  }
+  
+  return(result)
+}
+
+#---adjusting for different reporting delays in the different places of death 
+#--- dying in all places and in hospitals with 1 week delay
+#--- dying at home with no reporting delay
+#--- dying in hospices and care homes with 2 weeks reporting delay
+
+df <- ons %>%
+  dplyr::select(code, week, month,  weekly_cases,  weekly_deaths) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(week = as.numeric(week))
+
+df1 <- df %>%
+  dplyr::select(week, code, weekly_deaths) %>%
+  dplyr::mutate(week = week-1) %>%
+  dplyr::rename(weekly_deaths_adj = weekly_deaths)
+df<- df %>%
+  dplyr::left_join(df1, by = c("week", "code"))
+
+#---staying in the time range when pandemic really started and deaths ans cases are still reported for the weeks
+df <- df %>%
+  dplyr::distinct() %>%
+  dplyr::filter(week >= 9 & week <=21)
+#--account for the case of massive reporting bias that there are more deaths than cases and set the number of cases to the number of deaths
+correct_impossible <- function(df) {
+  
+correct <- which(df$weekly_deaths_adj > df$weekly_cases)
+for(i in 1:length(correct)){
+  pos <- correct[i]
+  df$weekly_cases[pos] <- df$weekly_deaths_adj[pos]
+}
+return(df)}
+
+df <- correct_impossible(df)
+# test whether it has worked
+which(df$weekly_deaths_adj > df$weekly_cases)
+summary(df$weekly_deaths_adj)
+summary(df$weekly_cases)
+#--- calculating the CFR per week
+df <- df %>%
+  dplyr::mutate(weekly_cfr_overall = cfr(cases = weekly_cases, deaths = weekly_deaths_adj)) #79NAs
+summary(df$weekly_cfr_overall)
+
+#-adjusting for underreporting
+load(file = "C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/cfr_estimates.Rdata")
+
+df <- df %>%
+  dplyr::left_join(cfr_estimates, by = "week")
+df <- df %>%
+  dplyr::mutate(weekly_cfr_overall_adj = weekly_cfr_overall*weekly_cfr,
+                weekly_cfr_overall_adj_lb = weekly_cfr_overall*weekly_cfr_lower,
+                weekly_cfr_overall_adj_ub = weekly_cfr_overall*weekly_cfr_upper)
+#---calculation of the monthly CFR
+df <- df %>%
+  dplyr::group_by(code, month) %>%
+  dplyr::mutate(mcfr_overall_adj = mean(weekly_cfr_overall_adj, na.rm= TRUE),
+                mcfr_overall_adj_lb = mean(weekly_cfr_overall_adj_lb, na.arm = TRUE),
+                mcfr_overall_adj_ub = mean(weekly_cfr_overall_adj_ub, na.rm = TRUE))
+
+
+#---final joining of the data sets
+ons <- ons %>%
+   dplyr::left_join(df, by = c("code", "week", "month")) %>%
+  dplyr::distinct() %>%
+  dplyr::select(-c(weekly_cases.x, weekly_deaths.x)) %>%
+  dplyr::rename(weekly_cases = weekly_cases.y,
+                weekly_deaths = weekly_deaths.y)
+#check for impossible values
+any(ons$weekly_deaths_adj > ons$weekly_cases)
+###check corrected cases!!!
+
+
+#--- calculate the weekly cases corrected for undderreporting
+ons <- ons %>%
+  dplyr::mutate(weekly_cases_corrected = weekly_cases/weekly_cfr)
+
+ons$weekly_cases_corrected <- round(ons$weekly_cases_corrected, digits = 0)
+summary(ons$weekly_cases_corrected)
+summary(ons$weekly_cases)
+which(ons$weekly_cases_corrected < ons$weekly_deaths_adj)
+which(ons$weekly_cases < ons$weekly_deaths_adj)
+
+````
+
+
+Calculate the response matrix for binomial model,
+Successes = deaths, failure = cases who didnt die
+````{r, echo = FALSE}
+data <- ons %>%
+  dplyr::filter(week >= 9 & week <= 21) %>%
+   dplyr::mutate(success_week = weekly_deaths_adj,
+                 failure_week = weekly_cases_corrected-weekly_deaths_adj, 
+                 failure_week_crude  = weekly_cases-weekly_deaths_adj)
+
+data <- data %>%
+  dplyr::ungroup()%>%
+  dplyr::group_by(month, code) %>%
+  dplyr::mutate(success_month = sum(success_week, na.rm = TRUE), 
+                failure_month = sum(failure_week, na.rm = TRUE),
+                failure_month_crude= sum(failure_week_crude, na.rm = TRUE)) %>%
+  dplyr::filter(month == "March" | month == "April" | month == "May")
+
+data <- data %>%
+  dplyr::select(code, month, success_month, failure_month, failure_month_crude,
+                imd_5s, Region, pop_density, pop_over_65_per, female_per, BAME_per, diab_ratio, obs_ratio, hyper_ratio, monthly_prop_carehomes, all_ages) %>%
+  distinct() %>%
+  dplyr::mutate(pop_over_65_per = pop_over_65_per/100)
+  
+
+````
+
+Go for the statistical modelling 
+````{r, echo = FALSE}
+###response matrix
+outcome <- cbind(data$success_month, data$failure_month)
+outcome_crude <- cbind(data$success_month, data$failure_month_crude)
+data_na <- na.omit(data)
+outcome_na <- cbind(data_na$success_month, data_na$failure_month)
+
+
+#adjusted R2
+adjR2 <- function(x) {
+  n <- length(x$y)
+  adjR2 <- 1 - ((x$deviance*x$df.null) / (x$null*x$df.residual))
+  return(adjR2)
+}
+
+###basic model, forced confounders, assumption of overdispersion
+model1 <- glm(outcome ~ month + Region + imd_5s,  data = data, family = "quasibinomial")
+model1t <- glm(outcome ~ month + Region + imd_5s,  data = data, family = "binomial")
+model1to <- glm(outcome_na ~ month + Region + imd_5s,  data = na.omit(data), family = "binomial")
+summary(model1)
+tab_model(model1)
+adjR2(model1) #61.57%
+car::vif(model1)
+
+#testing the crude CFR model
+model1 <- glm(outcome_crude ~ month + Region + imd_5s,  data = data, family = "quasibinomial")
+summary(model1)
+tab_model(model1)
+adjR2(model1) #61.57%
+car::vif(model1)
+
+
+
+
+#Confounder1: population density
+model2a <- glm(outcome ~ month + Region + imd_5s + pop_density,  data = data, family = "quasibinomial")
+model2at <- glm(outcome ~ month + Region + imd_5s + pop_density,  data = data, family = "binomial")
+model2ato <- glm(outcome_na ~ month + Region + imd_5s + pop_density,  data = na.omit(data), family = "binomial")
+summary(model2a)
+tab_model(model2a)
+adjR2(model2a)
+car::vif(model2a)
+#no change in outcome variables, but not significant
+lmtest::lrtest(model1to, model2ato)
+
+#confounder2: local outbreak in care homes
+model2b <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes,  data = data, family = "quasibinomial")
+model2bt <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes,  data = data, family = "binomial")
+model2bto <- glm(outcome_na ~ month + Region + imd_5s + monthly_prop_carehomes,  data = na.omit(data), family = "binomial")
+summary(model2b)
+tab_model(model2b)
+adjR2(model2b) #61.77%
+car::vif(model2b)
+#change in IMD varianles, no colinearity, check for better fit
+lmtest::lrtest(model1to, model2bto) #better fit of model including deathsin care homes
+
+#confounder3: Ethnicity
+model2c <- glm(outcome ~ month + Region + imd_5s + BAME_per,  data = data, family = "quasibinomial")
+model2ct <- glm(outcome ~ month + Region + imd_5s + BAME_per,  data = data, family = "binomial")
+model2cto <- glm(outcome_na ~ month + Region + imd_5s + BAME_per,  data = na.omit(data), family = "binomial")
+summary(model2c)
+tab_model(model2c)
+adjR2(model2c) #61.25%, BAME is not significant
+car::vif(model2c)
+
+#confounder4: Age
+model2d <- glm(outcome ~ month + Region + imd_5s + pop_over_65_per,  data = data, family = "quasibinomial")
+model2dt <- glm(outcome ~ month + Region + imd_5s + pop_over_65_per,  data = data, family = "binomial")
+model2dto <- glm(outcome_na ~ month + Region + imd_5s + pop_over_65_per,  data = na.omit(data), family = "binomial")
+summary(model2d)
+tab_model(model2d)
+adjR2(model2d) #61.81%%, signf, less change than care home factor
+car::vif(model2d)
+#lrtest
+lmtest::lrtest(model1to, model2dto) # second model better
+
+#coufounder comorbidities
+#diabetes
+model2e <- glm(outcome ~ month + Region + imd_5s + diab_ratio,  data = data, family = "quasibinomial")
+model2et <- glm(outcome ~ month + Region + imd_5s + diab_ratio,  data = data, family = "binomial")
+model2eto <- glm(outcome_na ~ month + Region + imd_5s + diab_ratio,  data = na.omit(data), family = "binomial")
+summary(model2e)
+tab_model(model2e)
+adjR2(model2e) #66.66%, but not significant 
+car::vif(model2e)
+#lrtest
+lmtest::lrtest(model1to, model2eto) 
+#obesity
+model2f <- glm(outcome ~ month + Region + imd_5s + obs_ratio,  data = data, family = "quasibinomial")
+model2ft <- glm(outcome ~ month + Region + imd_5s + obs_ratio,  data = data, family = "binomial")
+model2fto <- glm(outcome_na ~ month + Region + imd_5s + obs_ratio,  data = na.omit(data), family = "binomial")
+summary(model2f)
+tab_model(model2f)
+adjR2(model2f) #66.24%, but not significant 
+car::vif(model2f)
+#hypertension
+model2g <- glm(outcome ~ month + Region + imd_5s + hyper_ratio,  data = data, family = "quasibinomial")
+model2gt <- glm(outcome ~ month + Region + imd_5s + hyper_ratio,  data = data, family = "binomial")
+model2gto <- glm(outcome_na ~ month + Region + imd_5s + hyper_ratio,  data = na.omit(data), family = "binomial")
+summary(model2g)
+tab_model(model2g)
+adjR2(model2g) #66.61%, but not significant 
+car::vif(model2g)
+
+##gender
+model2h <- glm(outcome ~ month + Region + imd_5s + female_per,  data = data, family = "quasibinomial")
+model2ht <- glm(outcome ~ month + Region + imd_5s + female_per,  data = data, family = "binomial")
+model2hto <- glm(outcome_na ~ month + Region + imd_5s + female_per,  data = na.omit(data), family = "binomial")
+summary(model2h)
+tab_model(model2h)
+adjR2(model2h) #61,34%, but not significant 
+car::vif(model2h)
+
+###next step of the modelling, including care homes outbreaks and population age
+model3a <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+model3at <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "binomial")
+model3ato <- glm(outcome_na ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = na.omit(data), family = "binomial")
+summary(model3a)
+tab_model(model3a)
+adjR2(model3a) #62.29%
+car::vif(model3a)
+#change in IMD varianles, no colinearity, check for better fit
+lmtest::lrtest(model1to, model3ato)
+lmtest::lrtest(model2bto, model3ato) # fuller model better
+
+
+model3a <- glm(outcome_crude ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+tab_model(model3a)
+####FINAL MODEL: month and Region as foreced confounders, local outbreaks and Age of the population as additional confounders to IMD
+
+
+#confounder4: Age + pop_desnity
+model3a <- glm(outcome ~ month + Region + imd_5s + pop_over_65_per + pop_density,  data = data, family = "quasibinomial")
+model3at <- glm(outcome ~ month + Region + imd_5s + pop_over_65_per + pop_density,  data = data, family = "binomial")
+model3ato <- glm(outcome_na ~ month + Region + imd_5s + pop_over_65_per +pop_density,  data = na.omit(data), family = "binomial")
+summary(model3a)
+tab_model(model3a)
+adjR2(model3a) #61.81%%, signf, less change than care home factor
+car::vif(model3a)
+###pop density was not significant anymore
+
+
+````
+
+Tests for Interaction
+````{r, echo = FALSE}
+#---final model without interactions
+model <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+modelt <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "binomial")
+modelto <- glm(outcome_na ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = na.omit(data), family = "binomial")
+summary(model)
+tab_model(model)
+adjR2(model) #62.29%
+car::vif(model)
+
+#---interaction model
+modela <- glm(outcome ~ month + Region + imd_5s* monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+modelat <- glm(outcome ~ month + Region + imd_5s* monthly_prop_carehomes + pop_over_65_per,  data = data, family = "binomial")
+modelato <- glm(outcome_na ~ month + Region + imd_5s*monthly_prop_carehomes + pop_over_65_per,  data = na.omit(data), family = "binomial")
+summary(modela)
+tab_model(modela)
+adjR2(modela)
+car::vif(modela)
+#---not significant
+
+modelb <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes*pop_over_65_per,  data = data, family = "quasibinomial")
+modelbt <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes*pop_over_65_per,  data = data, family = "binomial")
+modelbto <- glm(outcome_na ~ month + Region + imd_5s + monthly_prop_carehomes*pop_over_65_per,  data = na.omit(data), family = "binomial")
+summary(modelb)
+tab_model(modelb)
+adjR2(modelb) 
+car::vif(modelb)
+#not significant
+
+modelc <- glm(outcome ~ month* Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+modelct <- glm(outcome ~ month*Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "binomial")
+modelcto <- glm(outcome_na ~ month* Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = na.omit(data), family = "binomial")
+summary(modelc)
+tab_model(modelc)
+adjR2(modelc) 
+car::vif(modelc)
+#not significant
+```
+Sensitivity check and bootstapping
+````{r, echo = FALSE}
+
+# #---boostrapping of the final model to evaluate goodness of fit
+ reg <- function(data, indices){
+   d <- data[indices, ] #let boot select the sample
+   fit <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+   return(summary(fit)$coef)
+ }
+# 
+ r2 <- function(data, indices){
+   d <- data[indices, ] #let boot select the sample
+model <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+   R2 <- adjR2(model)
+   return(R2)
+ }
+ 
+#---bootstrapping the fitness of the model
+ results <-boot(data = data, statistic = reg, R = 1000)
+ results
+ model3bf$coef
+ boot.ci(results, type = c("bca"))
+#---bootstrapping the adjusted R2 for the model
+ results2 <- boot(data = data, statistic = r2, R = 1000)
+ results2 #a = 1-0.95, mean = 
+ adjR2(model)
+ 
+#---bootstrapping the basic model
+r2 <- function(data, indices){
+   d <- data[indices, ] #let boot select the sample
+model <-  glm(outcome_crude ~ month + Region + imd_5s,  data = data, family = "quasibinomial")
+   R2 <- adjR2(model)
+   return(R2)
+ }
+ results3 <- boot(data = data, statistic = r2, R = 1000)
+ results3 
+
+
+````
+
+Other sensitivtiy checks
+````{r, echo  = FALSE}
+
+data <- ons %>%
+  dplyr::filter(week >= 9 & week <= 21) %>%
+   dplyr::mutate(success_week = weekly_deaths_adj,
+                 failure_week = weekly_cases_corrected-weekly_deaths_adj, 
+                 failure_week_crude  = weekly_cases-weekly_deaths_adj)
+
+data <- data %>%
+  dplyr::ungroup()%>%
+  dplyr::group_by(month, code) %>%
+  dplyr::mutate(success_month = sum(success_week, na.rm = TRUE), 
+                failure_month = sum(failure_week, na.rm = TRUE),
+                failure_month_crude= sum(failure_week_crude, na.rm = TRUE)) %>%
+  dplyr::filter(month == "March" | month == "April" | month == "May")
+
+data <- data %>%
+  dplyr::select(code, month, success_month, failure_month, failure_month_crude,
+                imd_5s, Region, pop_density, pop_over_65_per, female_per, BAME_per, diab_ratio, obs_ratio, hyper_ratio, monthly_prop_carehomes, all_ages,
+                imd_5r, prop_most_deprived,
+                pop_over_50_per, pop_over_70_per, median_age) %>%
+  distinct() %>%
+  dplyr::mutate(pop_over_65_per = pop_over_65_per/100)
+outcome <- cbind(data$success_month, data$failure_month)
+outcome_crude <- cbind(data$success_month, data$failure_month_crude)
+
+###original full model
+model <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+summary(model)
+adjR2(model)
+
+###model for crude CFR
+model <- glm(outcome_crude ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+summary(model)
+adjR2(model)
+
+###model assuming linear realtionship of quintiles
+data$ims_5s <- as.numeric(data$imd_5s)
+model <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+summary(model)
+adjR2(model)
+
+###model using median age
+data$ims_5s <- as.factor(data$imd_5s)
+model <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + median_age,  data = data, family = "quasibinomial")
+summary(model)
+adjR2(model)
+
+
+##model using age over 50
+model <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_50_per,  data = data, family = "quasibinomial")
+summary(model)
+tab_model(model)
+adjR2(model)
+
+###model using age over 70
+model <- glm(outcome ~ month + Region + imd_5s + monthly_prop_carehomes + pop_over_70_per,  data = data, family = "quasibinomial")
+summary(model)
+adjR2(model)
+
+###model using imd_5r
+model <- glm(outcome ~ month + Region + imd_5r + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+summary(model)
+adjR2(model)
+
+###model usint prop of most deprived
+model <- glm(outcome ~ month + Region + prop_most_deprived + monthly_prop_carehomes + pop_over_65_per,  data = data, family = "quasibinomial")
+summary(model)
+adjR2(model)
+
+
+ 
+
+````
