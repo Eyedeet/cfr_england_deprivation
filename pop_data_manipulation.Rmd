@@ -1,0 +1,142 @@
+---
+title: "pop_data_manipulation"
+author: "Anne Marie Suffel"
+date: "17 6 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(tidyverse)
+library(dplyr)
+```
+
+Load data files for manipulation
+
+```{r message = FALSE}
+getwd()
+setwd("C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/raw_pop_data")
+pop <- read.csv2("age_La1.csv")
+fem <- read.csv2("female_LA1.csv")
+mal <- read.csv2("male_LA1.csv")
+eth <- read.csv2("ethnic_LA1.csv")
+geo <- read.csv2("all_LA.csv")
+
+summary(pop) #Code, Name, Geog, All_ages, age_0, ..., age_90
+summary(pop$All_ages)
+summary(fem) #Code, Name, Geography, All_ages, age_0, ..., age_90
+summary(mal) #Code, Name, Geography All_ages, age_0,..., age_90
+summary(eth)#Area_Code, Area_Name, Total, White_British, Other_White, Mixed, Asian, Black, Other
+summary(geo) #area_codes, area_names
+
+
+#factor variables
+class(pop$Code)
+class(pop$Name)
+class(pop$Geog)
+class(fem$Code)
+class(fem$Name)
+class(fem$Geography)
+class(mal$Code)
+class(mal$Name)
+class(mal$Geography)
+class(geo$area_codes)
+class(geo$area_names)
+
+#converting factors into characters
+pop[, 1] <- sapply(pop[, 1], as.character)
+pop[, 2] <- sapply(pop[, 2], as.character)
+pop[, 3] <- sapply(pop[, 3], as.character)
+
+fem[, 1] <- sapply(fem[, 1], as.character)
+fem[, 2] <- sapply(fem[, 2], as.character)
+fem[, 3] <- sapply(fem[, 3], as.character)
+
+mal[, 1] <- sapply(mal[, 1], as.character)
+mal[, 2] <- sapply(mal[, 2], as.character)
+mal[, 3] <- sapply(mal[, 3], as.character)
+
+eth[, 1] <- sapply(eth[, 1], as.character)
+eth[, 2] <- sapply(eth[, 2], as.character)
+
+geo[, 1] <- sapply(geo[, 1], as.character)
+geo[, 2] <- sapply(geo[, 2], as.character)
+
+
+#check
+class(pop$Code)
+class(pop$Name)
+class(pop$Geog)
+class(fem$Code)
+class(fem$Name)
+class(fem$Geography)
+class(mal$Code)
+class(mal$Name)
+class(mal$Geography)
+class(geo$area_codes)
+class(geo$area_names)
+
+
+
+
+```
+
+
+
+Creating a new data frame containing all explanatory variables for the data analysis
+
+````{r measse = FALSE}
+df <- data.frame(codes=geo$area_codes,names=geo$area_names)
+
+dim(df) #432 rows and 2 columns
+length(df$codes) #432
+length(df$names) #432
+length(pop$Code) #415
+anyNA(pop$Code) #no missing values
+anyNA(pop$All_ages) # no missing values
+anyNA(df$codes) # no missing values
+missing.areas <- c()
+
+#trandorming df factors into character
+df[, 1] <- sapply(df[, 1], as.character)
+df[, 2] <- sapply(df[, 2], as.character)
+class(df$codes)
+class(df$names)
+
+##transformation into strings
+
+for(i in 1:(length(df$codes))){
+  df$codes[i] <- toString(df$codes[i])
+  i <- i+1
+  return(df$codes)
+}
+
+for(i in 1:(length(pop$Code))){
+  pop$Code[i] <- toString(pop$Code[i])
+  i <- i+1
+  return(pop$Code)
+}
+
+
+pop$Code[4] == df$codes[4]
+
+for(i in 1:length(pop$All_ages)){
+  
+        for(j in 1:length(df$codes)){
+          
+            if(pop$Code[i] == df$codes[j]){
+              df$population[j] <- pop$All_ages[i]
+            }
+          else{ j <- j+1}
+        }
+  
+      i <- i+1
+}
+
+
+
+
+````
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

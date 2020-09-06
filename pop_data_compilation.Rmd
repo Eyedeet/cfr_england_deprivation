@@ -1,0 +1,301 @@
+---
+title: "Data compilation"
+author: "Anne Marie Suffel"
+date: "17 6 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(rgdal)
+library(broom)
+require(maps)
+library(sp)
+library(magrittr)
+```
+
+loading the datasets
+
+```{r message = FALSE}
+
+getwd()
+setwd("C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/raw_pop_data")
+pop <- read.csv2("age_La1.csv", stringsAsFactors = FALSE)
+fem <- read.csv2("female_LA1.csv", stringsAsFactors = FALSE)
+mal <- read.csv2("male_LA1.csv", stringsAsFactors = FALSE)
+eth <- read.csv2("ethnic_LA1.csv", stringsAsFactors = FALSE)
+geo <- read.csv2("all_LA.csv", stringsAsFactors = FALSE)
+
+head(pop)#code, Name, Geog, All_ages, age_0, ..., age_90
+pop$code <- factor(pop$code)
+pop$Name <- factor(pop$Name)
+pop$Geog <- factor(pop$Geog)
+summary(pop)
+
+
+head(fem)#code, Name, Geography, All_ages, age_0, ..., age_90
+fem$code <- factor(fem$code)
+fem$Name <- factor(fem$Name)
+fem$Geography <- factor(fem$Geography)
+
+head(mal) #code, Name, Geography All_ages, age_0,..., age_90
+mal$code <- factor(fem$code)
+mal$Name <- factor(fem$Name)
+mal$Geography <- factor(fem$Geography)
+
+head(eth)#code, Area_Name, Total, White_British, Other_White, Mixed, Asian, Black, Other
+eth$code <- factor(eth$code)
+eth$Area_Name <- as.factor(eth$Area_Name)
+
+
+head(geo) #code, area_names
+geo$code <- factor(geo$code)
+geo$area_names <- factor(geo$area_names)
+
+
+```
+
+Merging the datasets by LA Code for population per age, total of females, total of males and ethnicity
+
+
+```{r message = FALSE}
+
+df <- data.frame(code = geo$code, names = geo$area_names)
+#summary(df)
+
+#---merging with population per age
+class(df$code)
+class(pop$Code)
+new_df <- df %>%
+            dplyr::left_join(pop, by = "code") %>%
+            dplyr::distinct ()
+#merge.data.frame(df, pop, by = "code")
+#summary(new_df)
+head(new_df)
+
+
+#---Merging with number of females in total
+fem1 <- select(fem, code, All_ages)
+#summary(fem1)
+new_df <-new_df %>%
+          dplyr::left_join(fem1, by = "code")
+colnames(new_df)
+head(new_df)
+#r----enaming the new variables
+new_df <- new_df %>%
+            dplyr::rename(pop_tot = All_ages.x, fem_tot = All_ages.y)
+#summary(new_df)
+head(new_df)
+
+
+#---mergin with number of males in total
+mal1 <- select(mal, code, All_ages)
+#summary(mal1)
+new_df <- new_df %>%
+            dplyr::left_join(mal1, by = "code") %>%
+            dplyr::distinct()
+#summary(new_df)
+new_df <- rename(new_df, mal_tot = All_ages)
+head(new_df)
+
+
+
+#---merging with different ethnicities
+#summary(eth)
+#---correct number per thousand
+eth1 <- eth %>%
+          dplyr::mutate(White_British = (White_British * 1000), Other_White = (Other_White*1000), Mixed = (Mixed*1000),
+                        Asian = (Asian*1000), Black = (Black*1000), Other = (Other*1000))
+#summary(eth1)
+eth1 <- select(eth1, code, White_British, Other_White, Mixed, Asian, Black, Other)
+#summary(eth1)
+#mergin data by LA
+new_df <- new_df %>%
+            dplyr::left_join (eth1, by = "code")
+head(new_df)
+
+#---deleting double variable
+new_df <- select(new_df, -names)
+#summary(new_df)
+
+#---dropping unneccessary dataframes
+remove(df, eth, eth1, fem, fem1, geo, mal, mal1, pop)
+head(new_df)
+      
+````
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+Merging the new data frame with data about IMD
+
+```{r message = FALSE}
+getwd()
+setwd("C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/raw_pop_data")
+imd <- read.csv2("IMD_LA.csv",  stringsAsFactors = FALSE)
+
+imd$IMD_score <- as.numeric(imd$IMD_score)
+#summary(imd)
+dim(imd) #317 rows and 22 columns
+head(imd)
+imd  <- rename(imd, code =  ï..code)
+
+
+imd$code <- factor(imd$code)
+imd$name <- factor(imd$name)
+for(i in 3:22){
+  imd[i] <- as.numeric(imd[,i])
+
+}
+#---check data transformation
+head(imd)
+new_imd <- imd %>%
+  dplyr::select(code, name, IMD_rank)
+new_imd <- new_imd %>%
+            dplyr::mutate(imd_10 = IMD_rank)
+new_imd <- new_imd %>%
+              dplyr::mutate(imd_10 = ntile(IMD_rank, 10))
+
+
+new_imd <- new_imd %>%
+  dplyr::select(code, imd_10)
+
+# #--calculation deciles for IMD overall
+# new_imd <- new_imd %>%
+#             dplyr::mutate(imd_10 = IMD_rank)
+# new_imd <- new_imd %>%
+#               dplyr::mutate(imd_10 = ntile(IMD_rank, 10))
+# new_imd$imd_10 <- factor(new_imd$imd_10)
+# #summary(new_imd)
+# #---calculation for deciles for all the other imd parameters
+# new_imd <- new_imd %>%
+#               dplyr::mutate(income_10 = ntile(income_rank, 10), employement_10 = ntile(employement_rank, 10), education_10 = ntile(education_rank, 10),
+#                              health_10 = ntile(health_rank, 10), crime_10 = ntile(crime_rank, 10), housing_10 = ntile(housing_rank, 10),
+#                             environment_10 = ntile(environment_rank, 10), IDACI_10 = ntile(IDACI_rank, 10), IDAOPI_10 = ntile(IDAOPI_rank, 10))
+# head(new_imd)                           
+# #---transforming all the new deciles info factors
+# 
+# new_imd$income_10 <- factor(new_imd$income_10)
+# new_imd$employement_10 <- factor(new_imd$employement_10)
+# new_imd$education_10 <- factor(new_imd$education_10)
+# new_imd$health_10 <- factor(new_imd$health_10)
+# new_imd$crime_10 <- factor(new_imd$crime_10)
+# new_imd$housing_10 <- factor(new_imd$housing_10)
+# new_imd$environment_10 <- factor(new_imd$environment_10)
+# new_imd$IDACI_10 <- factor(new_imd$IDACI_10)
+# new_imd$IDAOPI_10 <- factor(new_imd$IDAOPI_10)
+# 
+# #--selecting the important stuff
+# imd_merge <- select(new_imd, code, name, imd_10, income_10, employement_10, education_10, health_10, crime_10, housing_10, environment_10, IDACI_10, IDAOPI_10)
+# #summary(imd_merge)
+
+##Merging the population data frame with imd_deciles data frame
+data_pop <- new_df %>%
+              dplyr::left_join(new_imd, by = "code") %>%
+              dplyr::distinct()
+colnames(data_pop)
+
+
+#cleaning working environment
+remove( new_df, new_imd)
+
+````
+
+
+
+exporting newly created data frame without comorbidities
+````{r message = FALSE}
+
+save(data_pop, file = "C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/pop.Rdata")
+
+````
+
+
+
+Attach the data about comorbidities as well
+
+```{r message = FALSE}
+
+#pop1 <- load(file = "C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/pop.Rdata")
+
+
+##now load comorbidties for ONS population
+setwd("C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/raw_comorb")
+obesity <- read.csv2("obs_LA.csv", stringsAsFactors = FALSE)
+diabetes <- read.csv2("diab_LA.csv", stringsAsFactors = FALSE)
+hyper <- read.csv2("hyper_LA.csv", stringsAsFactors = FALSE)
+
+
+##data formatting for merging; forming accicental factor variables into numerics
+head(obesity)
+obesity <- dplyr::rename(obesity, code = ï..code)
+obesity$obs_tot <- as.numeric(obesity$obs_tot)  ##absolute number in the LA 
+obesity$code <- factor(obesity$code)
+obesity$name <- factor(obesity$name)
+head(obesity)
+
+
+head(hyper)
+hyper$hyp_total <- as.numeric(hyper$hyp_total) #total numer of Hypertension
+hyper$hyp_prev <- as.numeric(hyper$hyp_prev)#percentage of hypertension
+hyper$code <- factor(hyper$code)
+hyper$name <- factor(hyper$name)
+head(hyper)
+
+head(diabetes)
+diabetes$total_diab <- as.numeric(diabetes$total_diab)
+diabetes$diab_prev_perc <- as.numeric(diabetes$diab_prev_perc)
+diabetes$diab_prev_perc <- as.numeric(diabetes$diab_prev_perc)
+diabetes$diab_prev <- as.numeric(diabetes$diab_prev)
+diabetes$code <- factor(diabetes$code)
+diabetes$name <- factor(diabetes$name)
+head(diabetes)
+
+
+````
+ Merginng the population data set with the different comorbidity data_sets
+
+````{r message = FALSE}
+data_comorb <- data_pop %>%
+                dplyr::left_join(obesity, by = "code") %>%
+                dplyr::distinct()
+
+data_comorb <- data_comorb %>%
+                dplyr::left_join(diabetes, by = "code") %>%
+                dplyr::distinct()
+
+data_comorb <- data_comorb %>%
+                dplyr::left_join(hyper, by = "code") %>%
+                dplyr::distinct()
+
+head(data_comorb)
+
+
+
+##now calculate only absolute number of cases and then rate per 100,000
+data_comorb <- data_comorb %>%
+                dplyr::select(-c(name.x, , name, name.y, diab_prev_perc, hyp_prev, diab_prev))
+
+
+colnames(data_comorb)
+data_comorb <- data_comorb %>%
+                  dplyr::rename(diab_tot = "total_diab", hyper_tot = "hyp_total")
+
+
+data_comorb <- data_comorb %>%
+                  dplyr::mutate(obs_ratio = ((obs_tot * 100000)/pop_tot), diab_ratio = ((diab_tot * 100000)/pop_tot), 
+                                hyper_ratio = ((hyper_tot * 100000)/pop_tot))
+head(data_comorb)
+
+
+##saving data file
+save(data_comorb, file = "C:/Users/Anne M. Suffel/Documents/LSHTM/master thesis/Final data sets/pop_comorb.Rdata")
+
+````
+
+
+
